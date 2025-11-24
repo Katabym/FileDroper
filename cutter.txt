@@ -1,0 +1,21 @@
+def split_file(input_filename, output_prefix, num_parts):
+    with open(input_filename, 'r', encoding='utf-8') as file:
+        content = file.read()
+    
+    total_length = len(content)
+    part_size = total_length // num_parts
+
+    for i in range(num_parts):
+        start_index = i * part_size
+        end_index = (i + 1) * part_size if i < num_parts - 1 else None
+        
+        # Извлекаем очередной кусок текста
+        chunk_content = content[start_index:end_index]
+        
+        # Записываем этот кусок в новый файл
+        output_filename = f"{output_prefix}_{i+1}.txt"
+        with open(output_filename, 'w', encoding='utf-8') as out_file:
+            out_file.write(chunk_content)
+
+# Пример вызова функции
+split_file('fulovka___14.txt', './resf14/fulovka_14', 2)
