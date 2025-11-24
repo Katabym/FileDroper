@@ -1,0 +1,50 @@
+import base64
+import json
+import os
+
+OUTPUT_DIR = "./output"
+
+import json
+import base64
+
+def decode_text_to_file(encoded_file_path):
+    # Читаем закодированные данные из файла
+    with open(encoded_file_path, 'r', encoding='utf-8') as file:
+        data = file.read().strip()
+
+    # Обрабатываем как массив JSON объектов
+    # Добавляем скобки, чтобы сделать валидный JSON массив
+    if not data.startswith('['):
+        data = '[' + data + ']'
+
+    # Заменяем "}{" на "},{", чтобы разделить объекты правильно
+    data = data.replace('}{', '},{')
+
+    try:
+        # Парсим как JSON массив
+        files_data = json.loads(data)
+
+        # Обрабатываем каждый файл
+        for file_data in files_data:
+            filename = file_data['filename']
+            base64_message = file_data['filedata']
+
+            # Декодируем base64 данные
+            decoded_data = base64.b64decode(base64_message)
+
+            # Сохраняем декодированные данные в файл
+            with open(filename, 'wb') as file:
+                file.write(decoded_data)
+
+            print(f"Файл {filename} успешно восстановлен")
+
+    except json.JSONDecodeError as e:
+        print(f"Ошибка парсинга JSON: {e}")
+        print(f"Позиция ошибки: {e.pos}")
+        # Можно вывести контекст вокруг ошибки для отладки
+        start = max(0, e.pos - 50)
+        end = min(len(data), e.pos + 50)
+        print(f"Контекст: ...{data[start:end]}...")
+
+if __name__ == "__main__":
+    decode_text_to_file("photo.txt")
