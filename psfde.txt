@@ -1,0 +1,49 @@
+import base64
+import json
+import os
+import shutil
+
+
+
+DIR_PATH = './a'
+DIR_DESTINATION = './b'
+
+
+class MultipleFilesError(Exception):
+    """Raised when the source folder contains more than one file."""
+    pass
+
+
+class NoFilesError(Exception):
+    """Raised when the source folder is empty."""
+    pass
+
+
+def encode_file_to_text():
+    files = os.listdir(DIR_PATH)
+
+    
+    for file in files:
+        file_path=os.path.join(DIR_PATH, file)
+        print(file_path)
+        filename = file
+        if '.pptx' in file or '.mp4' in file or '.jpg' in file or '.docx' in file or '.whl' in file or '.rar' in file: 
+            
+            with open(file_path, 'rb') as binary_file:
+                binary_file_data = binary_file.read()
+            base64_encoded_data = base64.b64encode(binary_file_data).decode('utf-8')
+        
+            data = {
+                'filename': filename,
+                'filedata': base64_encoded_data
+            }
+        
+            with open(f'last59.txt', 'a') as file:
+                file.write(json.dumps(data))
+            shutil.move(file_path, DIR_DESTINATION)
+    
+    return print("Done")
+
+
+if __name__ == "__main__":
+    encode_file_to_text()
