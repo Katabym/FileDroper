@@ -1,0 +1,180 @@
+from textual import on
+from textual.app import App, ComposeResult
+from textual.containers import Container, Horizontal
+from textual.widgets import Button, Input, Static
+from textual.reactive import reactive
+from time import time
+
+class MessageBubble(Static):
+    """Виджет для отображения сообщения с выравниванием"""
+    
+    def __init__(self, content: str, is_user: bool = False):
+        super().__init__()
+        self.content = content
+        self.is_user = is_user
+    
+    def compose(self) -> ComposeResult:
+        """Создаем контейнер для сообщения"""
+        with Container(classes=f"message {'user' if self.is_user else 'bot'}"):
+            yield Static(self.content, classes="message-content")
+
+class ChatApp(App):
+    """Главное приложение чата"""
+    
+    CSS = """
+    Screen {
+        background: $surface;
+    }
+    
+    #chat-container {
+        height: 85%;
+        border: solid $accent;
+        margin: 1;
+        padding: 1;
+        overflow-y: auto;
+    }
+    
+    #input-container {
+        height: 15%;
+        dock: bottom;
+        margin: 1;
+    }
+    
+    #input-row {
+        height: auto;
+        margin-top: 1;
+    }
+    
+    .message {
+        margin: 1 0;
+        width: 100%;
+    }
+    
+    .message.bot {
+        align: left middle;
+    }
+    
+    .message.user {
+        align: right middle;
+    }
+    
+    .message-content {
+        width: 70%;
+        padding: 1 2;
+        border: round $accent;
+        background: $panel;
+    }
+    
+    .message.user .message-content {
+        background: $primary;
+        color: white;
+        margin-left: 1;
+        margin-right: 0;
+    }
+    
+    .message.bot .message-content {
+        background: $success;
+        color: white;
+        margin-left: 0;
+        margin-right: 1;
+    }
+    
+    #message-input {
+        width: 80%;
+    }
+    
+    #send-button {
+        width: 18%;
+        margin-left: 1;
+    }
+    """
+    
+    current_input = reactive("")
+    
+    current_input = reactive("")
+    
+    def compose(self) -> ComposeResult:
+        """Создаем структуру интерфейса"""
+        yield Container(
+            Static("🤖 Консольный чат", classes="header"),
+            Container(id="chat-container"),
+            Container(
+                Horizontal(
+                    Input(placeholder="Введите ваше сообщение...", id="message-input"),
+                    Button("Отправить", variant="primary", id="send-button"),
+                    id="input-row"
+                ),
+                id="input-container"
+            )
+        )
+    
+    def on_mount(self) -> None:
+        """Инициализация при запуске"""
+        self.chat_container = self.query_one("#chat-container")
+        self.message_input = self.query_one("#message-input")
+        self.message_input.focus()
+        
+        # Приветственное сообщение
+        self.add_message("Привет! Я ваш чат-бот. Напишите что-нибудь!", False)
+    
+    def add_message(self, content: str, is_user: bool = False) -> None:
+        """Добавляет сообщение в чат"""
+        message = MessageBubble(content, is_user)
+        self.chat_container.mount(message)
+        message.scroll_visible()
+    
+    @on(Button.Pressed, "#send-button")
+    def on_send_button(self) -> None:
+        """Обработчик нажатия кнопки Отправить"""
+        self.send_message()
+    
+    @on(Input.Submitted)
+    def on_input_submitted(self) -> None:
+        """Обработчик нажатия Enter в поле ввода"""
+        self.send_message()
+    
+    def send_message(self) -> None:
+        """Отправляет сообщение и обрабатывает его"""
+        message_text = self.message_input.value.strip()
+        
+        if not message_text:
+            return
+        
+        # Добавляем сообщение пользователя
+        self.add_message(message_text, True)
+        
+        # Очищаем поле ввода
+        self.message_input.value = ""
+        
+        # Обрабатываем сообщение (здесь можно подключить вашу логику)
+        self.process_message(message_text)
+    
+    def process_message(self, message: str) -> None:
+        """
+        Функция для обработки входящих сообщений.
+        Здесь вы можете подключить свою бизнес-логику.
+        """
+        # Имитация обработки с задержкой
+        self.set_timer(0.5, lambda: self.generate_response(message))
+    
+    def generate_response(self, user_message: str) -> None:
+        """Генерирует ответ на основе сообщения пользователя"""
+        # Простая логика ответов (замените на свою)
+        user_message_lower = user_message.lower()
+        
+        if "привет" in user_message_lower:
+            response = "Привет! Как у вас дела?"
+        elif "как дела" in user_message_lower:
+            response = "У меня всё отлично! Работаю в консоли :)"
+        elif "время" in user_message_lower:
+            response = f"Текущее время: {time()}"
+        elif "помощь" in user_message_lower:
+            response = "Я простой чат-бот. Попробуйте спросить о чём-нибудь ещё!"
+        else:
+            response = f"Вы сказали: '{user_message}'. Интересно!"
+        
+        self.add_message(response, False)
+
+if __name__ == "__main__":
+    app = ChatApp()
+    app.run()
