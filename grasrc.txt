@@ -1,0 +1,103 @@
+class CreateGraphArgs(BaseModel):
+    df_name: str = Field(..., description="Имя DataFrame с данными графа. Должен содержать колонки source и target")
+    source_col: str = Field(default="source", description="Название колонки с исходными вершинами графа.")
+    target_col: str = Field(default="target", description="Название колонки с целевыми вершинами графа.")
+    output_file: str = Field(default="graph.html", description="Путь к HTML файлу для сохранения графа. По умолчанию 'graph.html'")
+
+class ReadDataArgs(BaseModel):
+    file_path: str = Field(..., description="Путь к файлу CSV или Excel.")
+
+class ExecutePythonCodeArgs(BaseModel):
+    code: str = Field(..., description="Python-код для выполнения.")
+
+class ListFilesArgs(BaseModel):
+    path: str = Field(default=".", description="Путь к директории для листинга.")
+
+class SaveDataArgs(BaseModel):
+    df_name: str = Field(..., description="Имя переменной DataFrame для сохранения.")
+    file_path: str = Field(..., description="Путь к файлу для сохранения.")
+
+class AskUserArgs(BaseModel):
+    question: str = Field(..., description="Вопрос для пользователя.")
+
+class FinalAnswerArgs(BaseModel):
+    message: str = Field(..., description="Финальный ответ или результат.")
+
+# Tool functions
+
+
+def create_graph(
+    df_name: str, 
+    source_col: str, 
+    target_col: str, 
+    output_file: str,
+    state: AgentState) -> str:
+    """
+    Создаёт граф через Plotly + NetworkX
+    """
+    # Создаём граф NetworkX
+    G = nx.from_pandas_edgelist(
+        df_name,
+        source=source_col,
+        target=target_col,
+        create_using=nx.DiGraph()
+    )
+
+    # Позиции узлов (разные layouts доступны)
+    pos = nx.spring_layout(G, seed=42)
+
+    # Рёбра
+    edge_x, edge_y = [], []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=2, color='#888'),
+        hoverinfo='none',
+        mode='lines'
+    )
+
+    # Узлы
+    node_x = [pos[node][0] for node in G.nodes()]
+    node_y = [pos[node][1] for node in G.nodes()]
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        hoverinfo='text',
+        text=list(G.nodes()),
+        textposition='top center',
+        marker=dict(
+            showscale=True,
+            colorscale='YlGnBu',
+            size=30,
+            color=[G.degree(node) for node in G.nodes()],
+            colorbar=dict(title='Connections'),
+            line_width=2
+        )
+    )
+
+    # Фигура
+    fig = go.Figure(
+        data=[edge_trace, node_trace],
+        layout=go.Layout(
+            title='Network Graph',
+            showlegend=False,
+            hovermode='closest',
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            template='plotly_dark'
+        )
+    )
+
+    # Сохраняем и открываем
+    fig.write_html(output_file)
+    file_path = os.path.abspath(output_file)
+
+    return f"Граф сохранён: {file_path}"
+    return "Вы можете посмотреть на него нажав +Open in New Browser Tab"
+    return file_path
