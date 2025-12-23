@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f1f5f9;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+            --accent-color: #6366f1;
+            --accent-hover: #4f46e5;
+            --message-user: #e0e7ff;
+            --message-ai: #ffffff;
+        }
+
+        .dark {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #475569;
+            --accent-color: #818cf8;
+            --accent-hover: #6366f1;
+            --message-user: #3730a3;
+            --message-ai: #1e293b;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        .chat-container {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .message-user {
+            background-color: var(--message-user);
+        }
+
+        .message-ai {
+            background-color: var(--message-ai);
+            border: 1px solid var(--border-color);
+        }
+
+        .input-area {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+        }
+
+        .sidebar-panel {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .icon-btn {
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .icon-btn:hover {
+            color: var(--accent-color);
+        }
+
+        .preview-panel {
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+
+        .preview-panel.open {
+            transform: translateX(0);
+        }
+
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+
+        .dropdown-item {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+        }
+
+        .dropdown-item:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .typing-indicator span {
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .file-upload-zone {
+            border: 2px dashed var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .file-upload-zone.dragover {
+            border-color: var(--accent-color);
+            background-color: var(--bg-tertiary);
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden">
+    <div id="app" class="flex h-full">
+        <!-- Preview Panel (Left Side - 50%) -->
+        <div id="previewPanel" class="preview-panel fixed left-0 top-0 h-full w-1/2 sidebar-panel border-r z-40 flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b" style="border-color: var(--border-color);">
+                <h3 class="font-semibold text-lg">Превью</h3>
+                <button onclick="closePreviewPanel()" class="icon-btn text-xl p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="previewContent" class="flex-1 overflow-auto p-4 scrollbar-thin">
+                <!-- Preview content will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div id="mainContent" class="flex-1 flex flex-col h-full transition-all duration-300">
+            <!-- Header -->
+            <header class="flex items-center justify-between px-6 py-4 border-b" style="border-color: var(--border-color); background-color: var(--bg-secondary);">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background-color: var(--accent-color);">
+                        <i class="fas fa-robot text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-semibold text-lg">AI Assistant</h1>
+                        <p class="text-sm" style="color: var(--text-secondary);">Всегда готов помочь</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="clearChat()" class="icon-btn p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="Очистить чат">
+                        <i class="fas fa-trash-alt text-xl"></i>
+                    </button>
+                    <button onclick="openModal()" class="icon-btn p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="Настройки">
+                        <i class="fas fa-cog text-xl"></i>
+                    </button>
+                    <button onclick="toggleTheme()" class="icon-btn p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="Сменить тему">
+                        <i id="themeIcon" class="fas fa-moon text-xl"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Chat Messages -->
+            <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin">
+                <div class="flex justify-start">
+                    <div class="message-ai max-w-2xl rounded-2xl rounded-tl-sm px-5 py-3">
+                        <p>Привет! Я ваш AI-ассистент. Чем могу помочь?</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4" style="background-color: var(--bg-secondary);">
+                <!-- File Upload Zone -->
+                <div id="fileUploadZone" class="file-upload-zone hidden rounded-xl p-4 mb-3 text-center cursor-pointer" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-cloud-upload-alt text-3xl mb-2" style="color: var(--accent-color);"></i>
+                    <p class="text-sm" style="color: var(--text-secondary);">Перетащите файлы сюда или нажмите для выбора</p>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">Поддерживаются: CSV, XLSX</p>
+                </div>
+                
+                <!-- Attached Files Preview -->
+                <div id="attachedFiles" class="hidden flex flex-wrap gap-2 mb-3">
+                    <!-- Attached files will appear here -->
+                </div>
+
+                <div class="input-area flex items-end gap-3 rounded-2xl p-3 border">
+                    <input type="file" id="fileInput" class="hidden" accept=".csv,.xlsx,.xls" onchange="handleFileSelect(event)">
+                    <button onclick="toggleFileUpload()" class="icon-btn p-2 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600" title="Прикрепить файл">
+                        <i class="fas fa-paperclip text-lg"></i>
+                    </button>
+                    <textarea 
+                        id="messageInput" 
+                        placeholder="Введите сообщение..." 
+                        class="flex-1 bg-transparent resize-none outline-none max-h-32 py-2"
+                        style="color: var(--text-primary);"
+                        rows="1"
+                        onkeydown="handleKeyDown(event)"
+                        oninput="autoResize(this)"
+                    ></textarea>
+                    <button id="sendBtn" onclick="sendMessage()" class="p-3 rounded-xl text-white transition-colors" style="background-color: var(--accent-color);" onmouseover="this.style.backgroundColor='var(--accent-hover)'" onmouseout="this.style.backgroundColor='var(--accent-color)'">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modalOverlay" class="modal-overlay fixed inset-0 z-50 hidden flex items-center justify-center">
+        <div class="modal-content rounded-2xl border shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-5 border-b" style="border-color: var(--border-color);">
+                <h2 class="text-xl font-semibold">Установка компонентов</h2>
+                <button onclick="closeModal()" class="icon-btn p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="p-5">
+                <!-- Model Selection Section -->
+                <div class="mb-6 pb-5 border-b" style="border-color: var(--border-color);">
+                    <label class="block text-sm font-medium mb-3">
+                        <i class="fas fa-brain mr-2" style="color: var(--accent-color);"></i>
+                        Выбор модели ИИ:
+                    </label>
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <select id="modelSelect" class="w-full p-3 rounded-xl border appearance-none cursor-pointer pr-10 outline-none focus:ring-2 focus:ring-indigo-500" style="background-color: var(--bg-tertiary); border-color: var(--border-color); color: var(--text-primary);">
+                                <option value="">Выберите модель...</option>
+                            </select>
+                            <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style="color: var(--text-secondary);">
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                        </div>
+                        <button id="selectModelBtn" onclick="selectModel()" class="px-5 py-3 rounded-xl text-white font-medium transition-colors flex items-center gap-2" style="background-color: var(--accent-color);" onmouseover="this.style.backgroundColor='var(--accent-hover)'" onmouseout="this.style.backgroundColor='var(--accent-color)'">
+                            <i class="fas fa-check"></i>
+                            <span>Выбрать</span>
+                        </button>
+                    </div>
+                    <p id="currentModelInfo" class="text-xs mt-2" style="color: var(--text-secondary);">
+                        Текущая модель: <span id="currentModelName">не выбрана</span>
+                    </p>
+                </div>
+
+                <div id="modalAlert" class="flex items-center gap-3 mb-5 p-4 rounded-xl" style="background-color: var(--bg-tertiary);">
+                    <i class="fas fa-exclamation-triangle text-amber-500 text-xl"></i>
+                    <p class="text-sm" style="color: var(--text-secondary);">Обнаружены отсутствующие компоненты. Выберите элементы для установки.</p>
+                </div>
+
+                <!-- Dropdown List -->
+                <div class="space-y-2 mb-6">
+                    <label class="block text-sm font-medium mb-2">Доступные компоненты:</label>
+                    <div id="componentsList" class="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
+                        <!-- Components will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Install Button -->
+                <button id="installBtn" onclick="installComponents()" class="w-full py-3 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2" style="background-color: var(--accent-color);" onmouseover="this.style.backgroundColor='var(--accent-hover)'" onmouseout="this.style.backgroundColor='var(--accent-color)'">
+                    <i class="fas fa-download"></i>
+                    <span>Установить</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let isDarkMode = false;
+        let isPreviewOpen = false;
+        let selectedComponents = new Set();
+        let attachedFiles = [];
+        let isLoading = false;
+
+        // Component icons mapping
+        const componentIcons = {
+            'llm-model': 'fa-brain',
+            'embeddings': 'fa-vector-square',
+            'voice-synth': 'fa-microphone',
+            'image-gen': 'fa-image',
+            'code-assist': 'fa-code',
+            'translator': 'fa-language'
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkDirectoryStatus();
+            loadChatHistory();
+            setupDragAndDrop();
+            loadModels();
+        });
+
+        // API Functions
+        async function apiRequest(url, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+            
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+            
+            const response = await fetch(url, options);
+            return response.json();
+        }
+
+        // Check Directory Status
+        async function checkDirectoryStatus() {
+            try {
+                const result = await apiRequest('/api/check-directory');
+                
+                if (!result.exists || (result.missing && result.missing.length > 0)) {
+                    await loadComponents();
+                    openModal();
+                } else {
+                    await loadComponents();
+                }
+            } catch (error) {
+                console.error('Error checking directory:', error);
+                // Load components anyway for demo
+                loadComponentsFallback();
+            }
+        }
+
+        // Load Components from Server
+        async function loadComponents() {
+            try {
+                const result = await apiRequest('/api/components');
+                renderComponents(result.components);
+            } catch (error) {
+                console.error('Error loading components:', error);
+                loadComponentsFallback();
+            }
+        }
+
+        // Fallback components for demo
+        function loadComponentsFallback() {
+            const components = [
+                { id: 'llm-model', name: 'LLM Модель', size: '4.2 GB', installed: false },
+                { id: 'embeddings', name: 'Embeddings', size: '1.1 GB', installed: false },
+                { id: 'voice-synth', name: 'Голосовой синтез', size: '890 MB', installed: false },
+                { id: 'image-gen', name: 'Генерация изображений', size: '2.3 GB', installed: false },
+                { id: 'code-assist', name: 'Код-ассистент', size: '1.5 GB', installed: false },
+                { id: 'translator', name: 'Переводчик', size: '650 MB', installed: false }
+            ];
+            renderComponents(components);
+        }
+
+        // Render Components List
+        function renderComponents(components) {
+            const container = document.getElementById('componentsList');
+            container.innerHTML = components.map(comp => `
+                <div class="dropdown-item flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${selectedComponents.has(comp.id) ? 'ring-2 ring-indigo-500' : ''} ${comp.installed ? 'opacity-50' : ''}" 
+                     onclick="${comp.installed ? '' : `toggleComponent('${comp.id}')`}"
+                     title="${comp.installed ? 'Уже установлено' : 'Нажмите для выбора'}">
+                    <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background-color: var(--accent-color); color: white;">
+                        <i class="fas ${componentIcons[comp.id] || 'fa-cube'}"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium">${comp.name}</p>
+                        <p class="text-xs" style="color: var(--text-secondary);">
+                            ${comp.size}
+                            ${comp.installed ? ' • <span class="text-green-500">Установлено</span>' : ''}
+                        </p>
+                    </div>
+                    <div class="w-5 h-5 rounded border flex items-center justify-center ${selectedComponents.has(comp.id) ? 'bg-indigo-500 border-indigo-500' : ''} ${comp.installed ? 'bg-green-500 border-green-500' : ''}" style="border-color: var(--border-color);">
+                        ${selectedComponents.has(comp.id) || comp.installed ? '<i class="fas fa-check text-white text-xs"></i>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleComponent(id) {
+            if (selectedComponents.has(id)) {
+                selectedComponents.delete(id);
+            } else {
+                selectedComponents.add(id);
+            }
+            loadComponents();
+        }
+
+        // Load Models from Server
+        async function loadModels() {
+            try {
+                const result = await apiRequest('/api/models');
+                renderModelSelect(result.models, result.current);
+            } catch (error) {
+                console.error('Error loading models:', error);
+                renderModelSelectFallback();
+            }
+        }
+
+        // Render Model Select dropdown
+        function renderModelSelect(models, current) {
+            const select = document.getElementById('modelSelect');
+            select.innerHTML = '<option value="">Выберите модель...</option>' + 
+                models.map(model => `
+                    <option value="${model.id}" ${model.selected ? 'selected' : ''}>
+                        ${model.name} (${model.provider})
+                    </option>
+                `).join('');
+            
+            // Update current model info
+            if (current && current.id) {
+                document.getElementById('currentModelName').innerHTML = 
+                    `<strong style="color: var(--accent-color);">${current.name}</strong> (${current.provider})`;
+            }
+        }
+
+        // Fallback for demo
+        function renderModelSelectFallback() {
+            const models = [
+                { id: 'gpt-4', name: 'GPT-4', provider: 'OpenAI' },
+                { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'OpenAI' },
+                { id: 'claude-3', name: 'Claude 3', provider: 'Anthropic' },
+                { id: 'llama-3', name: 'LLaMA 3', provider: 'Meta' },
+                { id: 'mistral-7b', name: 'Mistral 7B', provider: 'Mistral AI' },
+                { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google' }
+            ];
+            renderModelSelect(models, null);
+        }
+
+        // Select Model
+        async function selectModel() {
+            const select = document.getElementById('modelSelect');
+            const modelId = select.value;
+            
+            if (!modelId) {
+                showNotification('Выберите модель из списка', 'warning');
+                return;
+            }
+            
+            const btn = document.getElementById('selectModelBtn');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+            
+            try {
+                const result = await apiRequest('/api/models/select', 'POST', { model_id: modelId });
+                
+                if (result.success) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Выбрано!';
+                    btn.style.backgroundColor = '#10b981';
+                    
+                    // Update current model display
+                    document.getElementById('currentModelName').innerHTML = 
+                        `<strong style="color: var(--accent-color);">${result.model.name}</strong> (${result.model.provider})`;
+                    
+                    showNotification(result.message, 'success');
+                    
+                    setTimeout(() => {
+                        btn.innerHTML = originalContent;
+                        btn.disabled = false;
+                        btn.style.backgroundColor = 'var(--accent-color)';
+                    }, 1500);
+                } else {
+                    throw new Error(result.error || 'Ошибка выбора модели');
+                }
+            } catch (error) {
+                console.error('Model select error:', error);
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+                showNotification('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Install Components
+        async function installComponents() {
+            if (selectedComponents.size === 0) {
+                showNotification('Выберите хотя бы один компонент', 'warning');
+                return;
+            }
+            
+            const btn = document.getElementById('installBtn');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Установка...';
+            btn.disabled = true;
+            
+            try {
+                const result = await apiRequest('/api/install', 'POST', {
+                    components: Array.from(selectedComponents)
+                });
+                
+                if (result.success) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Установлено!';
+                    showNotification(result.message, 'success');
+                    
+                    setTimeout(() => {
+                        closeModal();
+                        btn.innerHTML = originalContent;
+                        btn.disabled = false;
+                        selectedComponents.clear();
+                        loadComponents();
+                    }, 1500);
+                } else {
+                    throw new Error(result.error || 'Ошибка установки');
+                }
+            } catch (error) {
+                console.error('Install error:', error);
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+                showNotification('Ошибка при установке: ' + error.message, 'error');
+            }
+        }
+
+        // Chat Functions
+        async function loadChatHistory() {
+            try {
+                const result = await apiRequest('/api/chat/history');
+                if (result.success && result.history.length > 0) {
+                    const container = document.getElementById('chatMessages');
+                    container.innerHTML = '';
+                    
+                    result.history.forEach(msg => {
+                        addMessageToUI(msg.content, msg.role === 'user' ? 'user' : 'ai', msg.preview);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message && attachedFiles.length === 0) return;
+            if (isLoading) return;
+            
+            isLoading = true;
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            // Add user message to UI
+            if (message) {
+                addMessageToUI(message, 'user');
+            }
+            
+            // Upload files if any
+            if (attachedFiles.length > 0) {
+                for (const file of attachedFiles) {
+                    await uploadFile(file);
+                }
+                clearAttachedFiles();
+            }
+            
+            input.value = '';
+            input.style.height = 'auto';
+            
+            // Show typing indicator
+            showTypingIndicator();
+            
+            try {
+                if (message) {
+                    const result = await apiRequest('/api/chat', 'POST', { message });
+                    
+                    hideTypingIndicator();
+                    
+                    if (result.success) {
+                        addMessageToUI(result.response.content, 'ai', result.response.preview);
+                        
+                        // Handle preview panel
+                        if (result.response.preview) {
+                            handlePreview(result.response.preview);
+                        }
+                    } else {
+                        addMessageToUI('Произошла ошибка. Попробуйте еще раз.', 'ai');
+                    }
+                }
+            } catch (error) {
+                console.error('Chat error:', error);
+                hideTypingIndicator();
+                addMessageToUI('Ошибка соединения с сервером.', 'ai');
+            }
+            
+            isLoading = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+        }
+
+        async function clearChat() {
+            if (!confirm('Очистить историю чата?')) return;
+            
+            try {
+                await apiRequest('/api/chat/clear', 'POST');
+                document.getElementById('chatMessages').innerHTML = `
+                    <div class="flex justify-start">
+                        <div class="message-ai max-w-2xl rounded-2xl rounded-tl-sm px-5 py-3">
+                            <p>Привет! Я ваш AI-ассистент. Чем могу помочь?</p>
+                        </div>
+                    </div>
+                `;
+                showNotification('История очищена', 'success');
+            } catch (error) {
+                showNotification('Ошибка при очистке', 'error');
+            }
+        }
+
+        function addMessageToUI(text, sender, preview = null) {
+            const container = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = `${sender === 'user' ? 'message-user rounded-br-sm' : 'message-ai rounded-bl-sm'} max-w-2xl rounded-2xl px-5 py-3`;
+            
+            // Format text with line breaks
+            const formattedText = text.replace(/\n/g, '<br>').replace(/•/g, '<br>•');
+            bubble.innerHTML = `<p>${formattedText}</p>`;
+            
+            // Add preview button if preview exists
+            if (preview && sender === 'ai') {
+                const previewBtn = document.createElement('button');
+                previewBtn.className = 'mt-2 text-sm px-3 py-1 rounded-lg transition-colors';
+                previewBtn.style.cssText = 'background-color: var(--accent-color); color: white;';
+                previewBtn.innerHTML = '<i class="fas fa-eye mr-1"></i> Показать превью';
+                previewBtn.onclick = () => handlePreview(preview);
+                bubble.appendChild(previewBtn);
+            }
+            
+            messageDiv.appendChild(bubble);
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            const container = document.getElementById('chatMessages');
+            const indicator = document.createElement('div');
+            indicator.id = 'typingIndicator';
+            indicator.className = 'flex justify-start';
+            indicator.innerHTML = `
+                <div class="message-ai rounded-2xl rounded-bl-sm px-5 py-3">
+                    <div class="typing-indicator flex gap-1">
+                        <span class="w-2 h-2 rounded-full" style="background-color: var(--accent-color);"></span>
+                        <span class="w-2 h-2 rounded-full" style="background-color: var(--accent-color);"></span>
+                        <span class="w-2 h-2 rounded-full" style="background-color: var(--accent-color);"></span>
+                    </div>
+                </div>
+            `;
+            container.appendChild(indicator);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        // File Upload Functions
+        function toggleFileUpload() {
+            const zone = document.getElementById('fileUploadZone');
+            zone.classList.toggle('hidden');
+        }
+
+        function setupDragAndDrop() {
+            const zone = document.getElementById('fileUploadZone');
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                zone.addEventListener(eventName, preventDefaults, false);
+                document.body.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                zone.addEventListener(eventName, () => zone.classList.add('dragover'), false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                zone.addEventListener(eventName, () => zone.classList.remove('dragover'), false);
+            });
+            
+            zone.addEventListener('drop', handleDrop, false);
+        }
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function handleDrop(e) {
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            handleFiles(files);
+        }
+
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (['csv', 'xlsx', 'xls'].includes(ext)) {
+                    attachedFiles.push(file);
+                    showAttachedFile(file);
+                } else {
+                    showNotification(`Неподдерживаемый формат: ${ext}`, 'warning');
+                }
+            });
+        }
+
+        function showAttachedFile(file) {
+            const container = document.getElementById('attachedFiles');
+            container.classList.remove('hidden');
+            
+            const fileTag = document.createElement('div');
+            fileTag.className = 'flex items-center gap-2 px-3 py-2 rounded-lg text-sm';
+            fileTag.style.cssText = 'background-color: var(--bg-tertiary);';
+            fileTag.innerHTML = `
+                <i class="fas fa-file-excel" style="color: var(--accent-color);"></i>
+                <span>${file.name}</span>
+                <button onclick="removeAttachedFile('${file.name}', this)" class="icon-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            container.appendChild(fileTag);
+        }
+
+        function removeAttachedFile(filename, btn) {
+            attachedFiles = attachedFiles.filter(f => f.name !== filename);
+            btn.parentElement.remove();
+            
+            if (attachedFiles.length === 0) {
+                document.getElementById('attachedFiles').classList.add('hidden');
+            }
+        }
+
+        function clearAttachedFiles() {
+            attachedFiles = [];
+            const container = document.getElementById('attachedFiles');
+            container.innerHTML = '';
+            container.classList.add('hidden');
+            document.getElementById('fileUploadZone').classList.add('hidden');
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    addMessageToUI(`📎 Файл загружен: ${result.file.original_name}`, 'user');
+                    
+                    // Show file preview in AI message
+                    if (result.file.preview && !result.file.preview.error) {
+                        const previewText = `Файл ${result.file.original_name} обработан.\nСтрок данных: ${result.file.preview.total_rows}\nКолонок: ${result.file.preview.headers?.length || 0}`;
+                        addMessageToUI(previewText, 'ai');
+                    }
+                } else {
+                    showNotification(result.error, 'error');
+                }
+            } catch (error) {
+                showNotification('Ошибка загрузки файла', 'error');
+            }
+        }
+
+        // Preview Panel Functions
+        function handlePreview(preview) {
+            if (preview.type === 'images') {
+                openPreviewPanel(preview.items, 'images');
+            } else if (preview.type === 'html') {
+                openPreviewPanel(preview.content, 'html');
+            }
+        }
+
+        function openPreviewPanel(content, type) {
+            const panel = document.getElementById('previewPanel');
+            const previewContent = document.getElementById('previewContent');
+            const mainContent = document.getElementById('mainContent');
+            
+            let html = '';
+            if (type === 'images') {
+                html = content.map(item => `
+                    <div class="mb-4">
+                        <img src="${item.url}" alt="${item.name}" class="max-w-full h-auto rounded-lg shadow-lg" onerror="this.src='https://via.placeholder.com/800x600?text=Image+Error'">
+                        <p class="text-sm mt-2 text-center" style="color: var(--text-secondary);">${item.name}</p>
+                    </div>
+                `).join('');
+            } else if (type === 'html') {
+                html = `<iframe srcdoc="${content.replace(/"/g, '&quot;')}" class="w-full h-full min-h-96 rounded-lg border" style="border-color: var(--border-color);"></iframe>`;
+            }
+            
+            previewContent.innerHTML = html;
+            panel.classList.add('open');
+            mainContent.style.marginLeft = '50%';
+            mainContent.style.width = '50%';
+            isPreviewOpen = true;
+        }
+
+        function closePreviewPanel() {
+            const panel = document.getElementById('previewPanel');
+            const mainContent = document.getElementById('mainContent');
+            
+            panel.classList.remove('open');
+            mainContent.style.marginLeft = '0';
+            mainContent.style.width = '100%';
+            isPreviewOpen = false;
+        }
+
+        // Theme Toggle
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            document.body.classList.toggle('dark', isDarkMode);
+            const icon = document.getElementById('themeIcon');
+            icon.className = isDarkMode ? 'fas fa-sun text-xl' : 'fas fa-moon text-xl';
+            
+            // Save preference
+            localStorage.setItem('darkMode', isDarkMode);
+        }
+
+        // Load theme preference
+        if (localStorage.getItem('darkMode') === 'true') {
+            toggleTheme();
+        }
+
+        // Modal Functions
+        function openModal() {
+            document.getElementById('modalOverlay').classList.remove('hidden');
+            document.getElementById('modalOverlay').classList.add('flex');
+        }
+
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.add('hidden');
+            document.getElementById('modalOverlay').classList.remove('flex');
+        }
+
+        // Notification
+        function showNotification(message, type = 'info') {
+            const colors = {
+                success: '#10b981',
+                error: '#ef4444',
+                warning: '#f59e0b',
+                info: '#6366f1'
+            };
+            
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 z-50 px-6 py-3 rounded-xl shadow-lg text-white flex items-center gap-2 animate-pulse';
+            notification.style.backgroundColor = colors[type];
+            
+            const icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-exclamation-triangle',
+                info: 'fa-info-circle'
+            };
+            
+            notification.innerHTML = `<i class="fas ${icons[type]}"></i> ${message}`;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        // Utility Functions
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
+        }
+
+        // Close modal on overlay click
+        document.getElementById('modalOverlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                closeModal();
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (!document.getElementById('modalOverlay').classList.contains('hidden')) {
+                    closeModal();
+                } else if (isPreviewOpen) {
+                    closePreviewPanel();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
