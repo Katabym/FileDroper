@@ -1,0 +1,1003 @@
+"""
+AI Chat Assistant - Flask Backend
+Интеграция с PandasAgent для анализа данных
+"""
+
+import os
+import sys
+import json
+import subprocess
+import uuid
+import threading
+import queue
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, Response
+from werkzeug.utils import secure_filename
+
+# Добавляем путь к агенту
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+app = Flask(__name__, static_folder='static', template_folder='templates')
+
+# Конфигурация
+app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['PREVIEW_FOLDER'] = 'previews'
+app.config['COMPONENTS_FOLDER'] = 'components'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
+
+# Разрешенные расширения файлов
+ALLOWED_DATA_EXTENSIONS = {'csv', 'xlsx', 'xls'}
+ALLOWED_PREVIEW_EXTENSIONS = {'png', 'jpg', 'jpeg', 'html'}
+
+# История чата (в production используйте базу данных)
+chat_history = []
+
+# Активные сессии агентов
+agent_sessions = {}
+
+# Текущая выбранная модель
+current_model = {
+    'id': None,
+    'name': None
+}
+
+# Доступные модели для выбора
+AVAILABLE_MODELS = {
+    'gpt-4': {
+        'name': 'GPT-4',
+        'description': 'Наиболее мощная модель OpenAI',
+        'provider': 'OpenAI'
+    },
+    'gpt-3.5-turbo': {
+        'name': 'GPT-3.5 Turbo',
+        'description': 'Быстрая и эффективная модель',
+        'provider': 'OpenAI'
+    },
+    'claude-3': {
+        'name': 'Claude 3',
+        'description': 'Продвинутая модель Anthropic',
+        'provider': 'Anthropic'
+    },
+    'llama-3': {
+        'name': 'LLaMA 3',
+        'description': 'Открытая модель от Meta',
+        'provider': 'Meta'
+    },
+    'mistral-7b': {
+        'name': 'Mistral 7B',
+        'description': 'Компактная и быстрая модель',
+        'provider': 'Mistral AI'
+    },
+    'gemini-pro': {
+        'name': 'Gemini Pro',
+        'description': 'Мультимодальная модель Google',
+        'provider': 'Google'
+    }
+}
+
+# Доступные компоненты для установки
+AVAILABLE_COMPONENTS = {
+    'llm-model': {
+        'name': 'LLM Модель',
+        'script': 'install_llm.py',
+        'size': '4.2 GB'
+    },
+    'embeddings': {
+        'name': 'Embeddings',
+        'script': 'install_embeddings.py',
+        'size': '1.1 GB'
+    },
+    'voice-synth': {
+        'name': 'Голосовой синтез',
+        'script': 'install_voice.py',
+        'size': '890 MB'
+    },
+    'image-gen': {
+        'name': 'Генерация изображений',
+        'script': 'install_imagegen.py',
+        'size': '2.3 GB'
+    },
+    'code-assist': {
+        'name': 'Код-ассистент',
+        'script': 'install_codeassist.py',
+        'size': '1.5 GB'
+    },
+    'translator': {
+        'name': 'Переводчик',
+        'script': 'install_translator.py',
+        'size': '650 MB'
+    }
+}
+
+
+def ensure_directories():
+    """Создание необходимых директорий"""
+    directories = [
+        app.config['UPLOAD_FOLDER'],
+        app.config['PREVIEW_FOLDER'],
+        app.config['COMPONENTS_FOLDER'],
+        'templates',
+        'static'
+    ]
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+
+
+def allowed_file(filename, allowed_extensions):
+    """Проверка расширения файла"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+
+# ==================== PANDAS AGENT INTEGRATION ====================
+
+class WebPandasAgent:
+    """
+    Обёртка над PandasAgent для веб-интерфейса.
+    Перехватывает вывод агента и форматирует для отображения в чате.
+    """
+    
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.agent = None
+        self.output_queue = queue.Queue()
+        self.is_running = False
+        self.current_files = []
+        
+    def initialize_agent(self):
+        """Инициализация PandasAgent"""
+        try:
+            from agent.agent import PandasAgent
+            self.agent = PandasAgent()
+            return True
+        except ImportError as e:
+            print(f"Warning: Could not import PandasAgent: {e}")
+            return False
+        except Exception as e:
+            print(f"Error initializing agent: {e}")
+            return False
+    
+    def load_file(self, filepath: str) -> dict:
+        """Загрузка файла в агент"""
+        if not self.agent:
+            if not self.initialize_agent():
+                return {'success': False, 'error': 'Агент не инициализирован'}
+        
+        try:
+            # Используем инструмент read_data агента
+            from agent.tools import read_data
+            result = read_data(file_path=filepath, state=self.agent.state)
+            self.current_files.append(filepath)
+            return {
+                'success': True,
+                'message': result,
+                'file': filepath
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def run_query(self, query: str) -> dict:
+        """Выполнение запроса к агенту"""
+        if not self.agent:
+            if not self.initialize_agent():
+                return {
+                    'success': False,
+                    'response': 'Ошибка: Агент не инициализирован. Проверьте установку компонентов.',
+                    'steps': []
+                }
+        
+        try:
+            # Запускаем агент и собираем результаты
+            response_data = self._execute_agent_query(query)
+            return response_data
+        except Exception as e:
+            return {
+                'success': False,
+                'response': f'Ошибка выполнения: {str(e)}',
+                'steps': []
+            }
+    
+    def _execute_agent_query(self, query: str) -> dict:
+        """Внутренний метод выполнения запроса"""
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        
+        steps = []
+        final_answer = None
+        
+        # Перехватываем вывод
+        stdout_capture = io.StringIO()
+        
+        try:
+            # Добавляем запрос в историю агента
+            self.agent.history.append({"role": "user", "content": query})
+            
+            # Выполняем цикл агента
+            max_iterations = 20
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                
+                # Проверка лимита ошибок
+                if self.agent.error_counter >= self.agent.max_consecutive_errors:
+                    steps.append({
+                        'type': 'error',
+                        'content': f'Превышен лимит ошибок ({self.agent.max_consecutive_errors})'
+                    })
+                    break
+                
+                # Генерация промпта и получение ответа LLM
+                from agent.prompt import generate_prompt
+                from agent.llm import get_llm_response
+                
+                messages = generate_prompt(self.agent.history)
+                llm_response = get_llm_response(messages, self.agent.history, self.agent.state)
+                
+                # Проверка на ошибки API
+                if llm_response.startswith("Error:"):
+                    self.agent.error_counter += 1
+                    steps.append({
+                        'type': 'error',
+                        'content': llm_response
+                    })
+                    self.agent.history.append({"role": "user", "content": llm_response})
+                    continue
+                
+                self.agent.history.append({"role": "assistant", "content": llm_response})
+                
+                # Парсинг ответа
+                try:
+                    thought, action_json_str = self.agent.parse_llm_response(llm_response)
+                    action = json.loads(action_json_str)
+                    
+                    steps.append({
+                        'type': 'thought',
+                        'content': thought
+                    })
+                    
+                    self.agent.error_counter = 0
+                except Exception as e:
+                    self.agent.error_counter += 1
+                    error_msg = f"Ошибка парсинга ответа: {e}"
+                    steps.append({'type': 'error', 'content': error_msg})
+                    self.agent.history.append({"role": "user", "content": f"Error: {error_msg}"})
+                    continue
+                
+                # Проверка на final_answer
+                if action.get("tool") == "final_answer":
+                    final_answer = action.get("message", "")
+                    steps.append({
+                        'type': 'final',
+                        'content': final_answer
+                    })
+                    break
+                
+                # Выполнение инструмента
+                tool_name = action.get("tool")
+                tool_args = action.copy()
+                
+                if tool_name in self.agent.tool_map:
+                    try:
+                        tool_info = self.agent.tool_map[tool_name]
+                        
+                        # Передаём state для инструментов, которые его требуют
+                        if tool_name in ["read_data", "execute_python_code", "save_data"]:
+                            tool_args["state"] = self.agent.state
+                        
+                        if 'tool' in tool_args:
+                            del tool_args["tool"]
+                        
+                        observation = tool_info["fn"](**tool_args)
+                        
+                        steps.append({
+                            'type': 'action',
+                            'tool': tool_name,
+                            'observation': observation
+                        })
+                        
+                        self.agent.history.append({"role": "user", "content": f"Observation: {observation}"})
+                        self.agent.error_counter = 0
+                        
+                        # Проверяем, не создал ли инструмент файлы для превью
+                        self._check_for_generated_files(observation, steps)
+                        
+                    except Exception as e:
+                        error_msg = f"Ошибка выполнения {tool_name}: {e}"
+                        steps.append({'type': 'error', 'content': error_msg})
+                        self.agent.history.append({"role": "user", "content": f"Observation: {error_msg}"})
+                        self.agent.error_counter += 1
+                else:
+                    error_msg = f"Неизвестный инструмент: {tool_name}"
+                    steps.append({'type': 'error', 'content': error_msg})
+                    self.agent.history.append({"role": "user", "content": f"Observation: {error_msg}"})
+                    self.agent.error_counter += 1
+            
+            return {
+                'success': True,
+                'response': final_answer or "Агент завершил работу без финального ответа.",
+                'steps': steps
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'response': f'Ошибка: {str(e)}',
+                'steps': steps
+            }
+    
+    def _check_for_generated_files(self, observation: str, steps: list):
+        """Проверка на сгенерированные файлы для превью"""
+        import re
+        
+        # Ищем упоминания сохранённых файлов
+        image_patterns = [
+            r'saved?\s+(?:to|as)?\s*["\']?([^"\']+\.(?:png|jpg|jpeg))["\']?',
+            r'(?:plot|figure|image|график)\s+saved?\s+(?:to|as)?\s*["\']?([^"\']+\.(?:png|jpg|jpeg))["\']?',
+            r'["\']([^"\']+\.(?:png|jpg|jpeg))["\']'
+        ]
+        
+        html_patterns = [
+            r'saved?\s+(?:to|as)?\s*["\']?([^"\']+\.html)["\']?',
+            r'["\']([^"\']+\.html)["\']'
+        ]
+        
+        for pattern in image_patterns:
+            matches = re.findall(pattern, observation, re.IGNORECASE)
+            for match in matches:
+                if os.path.exists(match):
+                    steps.append({
+                        'type': 'preview',
+                        'preview_type': 'image',
+                        'file': match
+                    })
+        
+        for pattern in html_patterns:
+            matches = re.findall(pattern, observation, re.IGNORECASE)
+            for match in matches:
+                if os.path.exists(match):
+                    steps.append({
+                        'type': 'preview',
+                        'preview_type': 'html',
+                        'file': match
+                    })
+
+
+def get_or_create_agent_session(session_id: str = None) -> WebPandasAgent:
+    """Получение или создание сессии агента"""
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+    
+    if session_id not in agent_sessions:
+        agent_sessions[session_id] = WebPandasAgent(session_id)
+    
+    return agent_sessions[session_id]
+
+
+def format_agent_response(agent_result: dict) -> dict:
+    """Форматирование ответа агента для UI"""
+    response_text = agent_result.get('response', '')
+    steps = agent_result.get('steps', [])
+    
+    # Формируем детальный ответ
+    formatted_parts = []
+    preview_data = None
+    
+    for step in steps:
+        step_type = step.get('type')
+        
+        if step_type == 'thought':
+            formatted_parts.append(f"💭 **Размышление:** {step['content']}")
+        
+        elif step_type == 'action':
+            tool = step.get('tool', 'unknown')
+            obs = step.get('observation', '')
+            # Сокращаем длинные наблюдения
+            if len(obs) > 500:
+                obs = obs[:500] + '...'
+            formatted_parts.append(f"🔧 **{tool}:** {obs}")
+        
+        elif step_type == 'error':
+            formatted_parts.append(f"❌ **Ошибка:** {step['content']}")
+        
+        elif step_type == 'preview':
+            # Сохраняем информацию о превью
+            preview_type = step.get('preview_type')
+            file_path = step.get('file')
+            
+            if preview_type == 'image':
+                # Копируем файл в папку превью
+                if os.path.exists(file_path):
+                    filename = os.path.basename(file_path)
+                    dest_path = os.path.join(app.config['PREVIEW_FOLDER'], filename)
+                    import shutil
+                    shutil.copy2(file_path, dest_path)
+                    preview_data = {
+                        'type': 'images',
+                        'items': [{'name': filename, 'url': f'/api/preview/image/{filename}'}]
+                    }
+            
+            elif preview_type == 'html':
+                if os.path.exists(file_path):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    preview_data = {
+                        'type': 'html',
+                        'content': html_content
+                    }
+        
+        elif step_type == 'final':
+            pass  # Финальный ответ добавляем отдельно
+    
+    # Формируем итоговый текст
+    if formatted_parts:
+        detailed_response = '\n\n'.join(formatted_parts)
+        if response_text:
+            detailed_response += f'\n\n✅ **Результат:** {response_text}'
+    else:
+        detailed_response = response_text
+    
+    return {
+        'text': detailed_response or response_text,
+        'preview': preview_data,
+        'steps': steps
+    }
+
+
+# ==================== ROUTES ====================
+
+@app.route('/')
+def index():
+    """Главная страница"""
+    return render_template('index.html')
+
+
+@app.route('/api/check-directory', methods=['GET'])
+def check_directory():
+    """Проверка наличия директории компонентов и модулей агента"""
+    components_path = app.config['COMPONENTS_FOLDER']
+    agent_path = os.path.join(os.path.dirname(__file__), 'agent')
+    
+    # Проверяем наличие модуля агента
+    agent_available = os.path.exists(agent_path) and os.path.exists(os.path.join(agent_path, 'agent.py'))
+    
+    # Проверяем существование директории компонентов
+    if not os.path.exists(components_path):
+        return jsonify({
+            'exists': False,
+            'agent_available': agent_available,
+            'message': 'Директория компонентов не найдена',
+            'components': list(AVAILABLE_COMPONENTS.keys())
+        })
+    
+    # Проверяем какие компоненты установлены
+    installed = []
+    for comp_id in AVAILABLE_COMPONENTS:
+        comp_path = os.path.join(components_path, comp_id)
+        if os.path.exists(comp_path):
+            installed.append(comp_id)
+    
+    missing = [c for c in AVAILABLE_COMPONENTS if c not in installed]
+    
+    return jsonify({
+        'exists': True,
+        'agent_available': agent_available,
+        'installed': installed,
+        'missing': missing,
+        'all_installed': len(missing) == 0
+    })
+
+
+@app.route('/api/components', methods=['GET'])
+def get_components():
+    """Получение списка доступных компонентов"""
+    components = []
+    for comp_id, comp_data in AVAILABLE_COMPONENTS.items():
+        comp_path = os.path.join(app.config['COMPONENTS_FOLDER'], comp_id)
+        components.append({
+            'id': comp_id,
+            'name': comp_data['name'],
+            'size': comp_data['size'],
+            'installed': os.path.exists(comp_path)
+        })
+    return jsonify({'components': components})
+
+
+@app.route('/api/models', methods=['GET'])
+def get_models():
+    """Получение списка доступных моделей"""
+    models = []
+    for model_id, model_data in AVAILABLE_MODELS.items():
+        models.append({
+            'id': model_id,
+            'name': model_data['name'],
+            'description': model_data['description'],
+            'provider': model_data['provider'],
+            'selected': current_model['id'] == model_id
+        })
+    return jsonify({
+        'models': models,
+        'current': current_model
+    })
+
+
+@app.route('/api/models/select', methods=['POST'])
+def select_model():
+    """Выбор модели для использования"""
+    global current_model
+    
+    data = request.get_json()
+    model_id = data.get('model_id')
+    
+    if not model_id:
+        return jsonify({'success': False, 'error': 'Модель не указана'}), 400
+    
+    if model_id not in AVAILABLE_MODELS:
+        return jsonify({'success': False, 'error': 'Неизвестная модель'}), 400
+    
+    model_data = AVAILABLE_MODELS[model_id]
+    
+    # Сохраняем выбранную модель
+    current_model = {
+        'id': model_id,
+        'name': model_data['name'],
+        'provider': model_data['provider']
+    }
+    
+    # Сохраняем выбор в файл конфигурации
+    config_path = os.path.join(app.config['COMPONENTS_FOLDER'], 'model_config.json')
+    os.makedirs(app.config['COMPONENTS_FOLDER'], exist_ok=True)
+    
+    with open(config_path, 'w') as f:
+        json.dump({
+            'selected_model': current_model,
+            'selected_at': datetime.now().isoformat()
+        }, f, indent=2)
+    
+    # Также можно обновить конфигурацию агента, если нужно
+    # Например, обновить config.py или переменные окружения
+    
+    return jsonify({
+        'success': True,
+        'model': current_model,
+        'message': f'Модель {model_data["name"]} успешно выбрана'
+    })
+
+
+@app.route('/api/models/current', methods=['GET'])
+def get_current_model():
+    """Получение текущей выбранной модели"""
+    return jsonify({
+        'success': True,
+        'model': current_model
+    })
+
+
+@app.route('/api/install', methods=['POST'])
+def install_components():
+    """Установка выбранных компонентов"""
+    data = request.get_json()
+    components_to_install = data.get('components', [])
+    
+    if not components_to_install:
+        return jsonify({'success': False, 'error': 'Не выбраны компоненты'}), 400
+    
+    results = []
+    for comp_id in components_to_install:
+        if comp_id not in AVAILABLE_COMPONENTS:
+            results.append({
+                'id': comp_id,
+                'success': False,
+                'error': 'Неизвестный компонент'
+            })
+            continue
+        
+        comp_data = AVAILABLE_COMPONENTS[comp_id]
+        script_path = os.path.join('scripts', comp_data['script'])
+        
+        try:
+            # Создаем директорию компонента
+            comp_path = os.path.join(app.config['COMPONENTS_FOLDER'], comp_id)
+            os.makedirs(comp_path, exist_ok=True)
+            
+            # Запускаем скрипт установки если он существует
+            if os.path.exists(script_path):
+                result = subprocess.run(
+                    ['python', script_path, '--target', comp_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 минут таймаут
+                )
+                
+                if result.returncode != 0:
+                    results.append({
+                        'id': comp_id,
+                        'success': False,
+                        'error': result.stderr
+                    })
+                    continue
+            
+            # Создаем маркер успешной установки
+            marker_path = os.path.join(comp_path, '.installed')
+            with open(marker_path, 'w') as f:
+                f.write(datetime.now().isoformat())
+            
+            results.append({
+                'id': comp_id,
+                'success': True,
+                'name': comp_data['name']
+            })
+            
+        except subprocess.TimeoutExpired:
+            results.append({
+                'id': comp_id,
+                'success': False,
+                'error': 'Превышено время установки'
+            })
+        except Exception as e:
+            results.append({
+                'id': comp_id,
+                'success': False,
+                'error': str(e)
+            })
+    
+    success_count = sum(1 for r in results if r['success'])
+    
+    return jsonify({
+        'success': success_count > 0,
+        'results': results,
+        'message': f'Установлено {success_count} из {len(components_to_install)} компонентов'
+    })
+
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Обработка сообщения чата с использованием PandasAgent"""
+    data = request.get_json()
+    user_message = data.get('message', '').strip()
+    session_id = data.get('session_id', 'default')
+    
+    if not user_message:
+        return jsonify({'success': False, 'error': 'Пустое сообщение'}), 400
+    
+    # Сохраняем сообщение пользователя
+    user_msg = {
+        'id': str(uuid.uuid4()),
+        'role': 'user',
+        'content': user_message,
+        'timestamp': datetime.now().isoformat()
+    }
+    chat_history.append(user_msg)
+    
+    # Получаем или создаём сессию агента
+    agent_session = get_or_create_agent_session(session_id)
+    
+    # Проверяем, есть ли загруженные файлы
+    uploaded_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
+                      if allowed_file(f, ALLOWED_DATA_EXTENSIONS)]
+    
+    # Если есть файлы и агент ещё их не загрузил, загружаем
+    for filepath in uploaded_files:
+        full_path = os.path.join(app.config['UPLOAD_FOLDER'], filepath)
+        if full_path not in agent_session.current_files:
+            load_result = agent_session.load_file(full_path)
+            if not load_result['success']:
+                print(f"Warning: Could not load file {filepath}: {load_result.get('error')}")
+    
+    # Выполняем запрос к агенту
+    agent_result = agent_session.run_query(user_message)
+    
+    # Форматируем ответ
+    formatted = format_agent_response(agent_result)
+    
+    # Сохраняем ответ ИИ
+    ai_msg = {
+        'id': str(uuid.uuid4()),
+        'role': 'assistant',
+        'content': formatted['text'],
+        'preview': formatted.get('preview'),
+        'steps': formatted.get('steps', []),
+        'timestamp': datetime.now().isoformat()
+    }
+    chat_history.append(ai_msg)
+    
+    return jsonify({
+        'success': True,
+        'response': ai_msg
+    })
+
+
+@app.route('/api/chat/history', methods=['GET'])
+def get_chat_history():
+    """Получение истории чата"""
+    return jsonify({
+        'success': True,
+        'history': chat_history
+    })
+
+
+@app.route('/api/chat/clear', methods=['POST'])
+def clear_chat_history():
+    """Очистка истории чата"""
+    global chat_history, agent_sessions
+    chat_history = []
+    agent_sessions = {}  # Сбрасываем сессии агентов
+    return jsonify({'success': True, 'message': 'История очищена'})
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    """Загрузка файлов (CSV, XLSX) и передача агенту"""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'Файл не найден'}), 400
+    
+    file = request.files['file']
+    session_id = request.form.get('session_id', 'default')
+    
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Файл не выбран'}), 400
+    
+    if not allowed_file(file.filename, ALLOWED_DATA_EXTENSIONS):
+        return jsonify({
+            'success': False, 
+            'error': f'Неподдерживаемый формат. Разрешены: {", ".join(ALLOWED_DATA_EXTENSIONS)}'
+        }), 400
+    
+    try:
+        filename = secure_filename(file.filename)
+        # Добавляем уникальный идентификатор к имени файла
+        unique_filename = f"{uuid.uuid4().hex[:8]}_{filename}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        file.save(filepath)
+        
+        # Получаем информацию о файле
+        file_info = {
+            'id': unique_filename,
+            'original_name': filename,
+            'size': os.path.getsize(filepath),
+            'path': filepath
+        }
+        
+        # Обработка файла в зависимости от типа
+        file_ext = filename.rsplit('.', 1)[1].lower()
+        
+        if file_ext == 'csv':
+            file_info['type'] = 'csv'
+            file_info['preview'] = process_csv(filepath)
+        elif file_ext in ('xlsx', 'xls'):
+            file_info['type'] = 'excel'
+            file_info['preview'] = process_excel(filepath)
+        
+        # Загружаем файл в агент
+        agent_session = get_or_create_agent_session(session_id)
+        load_result = agent_session.load_file(filepath)
+        
+        if load_result['success']:
+            file_info['agent_loaded'] = True
+            file_info['agent_message'] = load_result.get('message', '')
+        else:
+            file_info['agent_loaded'] = False
+            file_info['agent_error'] = load_result.get('error', '')
+        
+        return jsonify({
+            'success': True,
+            'file': file_info,
+            'message': f'Файл {filename} успешно загружен'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def process_csv(filepath):
+    """Обработка CSV файла"""
+    try:
+        import csv
+        preview_data = {'headers': [], 'rows': [], 'total_rows': 0}
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            headers = next(reader, None)
+            if headers:
+                preview_data['headers'] = headers
+            
+            rows = []
+            for i, row in enumerate(reader):
+                if i < 10:  # Первые 10 строк для превью
+                    rows.append(row)
+                preview_data['total_rows'] = i + 1
+            
+            preview_data['rows'] = rows
+        
+        return preview_data
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def process_excel(filepath):
+    """Обработка Excel файла"""
+    try:
+        # Попытка использовать openpyxl если установлен
+        import importlib.util
+        if importlib.util.find_spec('openpyxl'):
+            from openpyxl import load_workbook
+            
+            wb = load_workbook(filepath, read_only=True)
+            sheet = wb.active
+            
+            preview_data = {'headers': [], 'rows': [], 'total_rows': 0, 'sheets': wb.sheetnames}
+            
+            rows = list(sheet.iter_rows(values_only=True))
+            if rows:
+                preview_data['headers'] = [str(c) if c else '' for c in rows[0]]
+                preview_data['rows'] = [[str(c) if c else '' for c in row] for row in rows[1:11]]
+                preview_data['total_rows'] = len(rows) - 1
+            
+            wb.close()
+            return preview_data
+        else:
+            return {'error': 'openpyxl не установлен. Установите: pip install openpyxl'}
+    except Exception as e:
+        return {'error': str(e)}
+
+
+@app.route('/api/preview/image/<filename>')
+def get_preview_image(filename):
+    """Отдача изображения для превью"""
+    return send_from_directory(app.config['PREVIEW_FOLDER'], filename)
+
+
+@app.route('/api/preview/html/<filename>')
+def get_preview_html(filename):
+    """Отдача HTML файла для превью"""
+    filepath = os.path.join(app.config['PREVIEW_FOLDER'], filename)
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Файл не найден'}), 404
+    
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    return jsonify({
+        'success': True,
+        'content': content,
+        'filename': filename
+    })
+
+
+@app.route('/api/preview/generate', methods=['POST'])
+def generate_preview():
+    """Генерация превью для отображения в боковой панели"""
+    data = request.get_json()
+    preview_type = data.get('type', 'html')
+    
+    if preview_type == 'html':
+        content = data.get('content') or generate_sample_html()
+        return jsonify({
+            'success': True,
+            'type': 'html',
+            'content': content
+        })
+    
+    elif preview_type == 'images':
+        images = get_preview_images()
+        return jsonify({
+            'success': True,
+            'type': 'images',
+            'items': images
+        })
+    
+    return jsonify({'success': False, 'error': 'Неизвестный тип превью'}), 400
+
+
+def get_preview_images():
+    """Получение списка изображений для превью"""
+    images = []
+    preview_folder = app.config['PREVIEW_FOLDER']
+    
+    if os.path.exists(preview_folder):
+        for filename in os.listdir(preview_folder):
+            if allowed_file(filename, {'png', 'jpg', 'jpeg'}):
+                images.append({
+                    'name': filename,
+                    'url': f'/api/preview/image/{filename}'
+                })
+    
+    return images
+
+
+def generate_sample_html():
+    """Генерация примера HTML"""
+    return '''<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; margin: 0; }
+        .container { background: white; border-radius: 16px; padding: 30px; max-width: 600px; margin: 0 auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        h1 { color: #6366f1; margin-bottom: 20px; }
+        p { color: #64748b; line-height: 1.6; }
+        .badge { display: inline-block; background: #e0e7ff; color: #6366f1; padding: 5px 15px; border-radius: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Сгенерированная страница</h1>
+        <p>Это пример HTML-контента, созданного AI-ассистентом.</p>
+        <span class="badge">AI Generated</span>
+    </div>
+</body>
+</html>'''
+
+
+@app.route('/api/files/<path:filename>')
+def serve_file(filename):
+    """Отдача загруженных файлов"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+@app.route('/api/agent/status', methods=['GET'])
+def agent_status():
+    """Проверка статуса агента"""
+    session_id = request.args.get('session_id', 'default')
+    
+    agent_available = False
+    agent_initialized = False
+    loaded_files = []
+    
+    try:
+        from agent.agent import PandasAgent
+        agent_available = True
+        
+        if session_id in agent_sessions:
+            agent_session = agent_sessions[session_id]
+            agent_initialized = agent_session.agent is not None
+            loaded_files = agent_session.current_files
+    except ImportError:
+        pass
+    
+    return jsonify({
+        'success': True,
+        'agent_available': agent_available,
+        'agent_initialized': agent_initialized,
+        'loaded_files': loaded_files,
+        'session_id': session_id
+    })
+
+
+# ==================== ERROR HANDLERS ====================
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Не найдено'}), 404
+
+
+@app.errorhandler(500)
+def server_error(error):
+    return jsonify({'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.errorhandler(413)
+def too_large(error):
+    return jsonify({'error': 'Файл слишком большой'}), 413
+
+
+# ==================== MAIN ====================
+
+if __name__ == '__main__':
+    ensure_directories()
+    
+    # Проверяем наличие агента
+    try:
+        from agent.agent import PandasAgent
+        print("✅ PandasAgent найден и готов к использованию")
+    except ImportError as e:
+        print(f"⚠️ PandasAgent не найден: {e}")
+        print("   Убедитесь, что папка 'agent' находится в корне проекта")
+    
+    print("🚀 AI Chat Assistant запущен!")
+    port = '5001'
+    
+    print(f"Ссылка на чат: https://jupyterhub-datalab.apps.prom-datalab.ca.sbrf.ru/user/{os.getenv('JUPYTERHUB_USER')}/proxy/{port}")
+    app.run(host='0.0.0.0', port=port)
