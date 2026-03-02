@@ -1,0 +1,143 @@
+// =====================================================
+// УТИЛИТЫ ДЛЯ РАБОТЫ С BASE64
+// =====================================================
+
+/**
+ * Определяет MIME-тип по расширению или по началу base64 строки
+ */
+function getMimeType(data, filename) {
+    // Если это путь к файлу, определяем по расширению
+    if (filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        const mimeTypes = {
+            // Изображения
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'svg': 'image/svg+xml',
+            // Аудио
+            'mp3': 'audio/mpeg',
+            'wav': 'audio/wav',
+            'ogg': 'audio/ogg',
+            'mp4': 'audio/mp4',
+            'm4a': 'audio/mp4',
+            // Документы
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'doc': 'application/msword',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'xls': 'application/vnd.ms-excel',
+            'pdf': 'application/pdf'
+        };
+        return mimeTypes[ext] || 'application/octet-stream';
+    }
+    
+    // Если base64 содержит data URI prefix
+    if (data && data.startsWith('data:')) {
+        const match = data.match(/^data:([^;]+);base64,/);
+        if (match) return match[1];
+    }
+    
+    return 'application/octet-stream';
+}
+
+/**
+ * Проверяет, является ли строка base64
+ */
+function isBase64(str) {
+    if (!str || typeof str !== 'string') return false;
+    // Проверяем data URI
+    if (str.startsWith('data:')) return true;
+    // Проверяем чистый base64 (без пути к файлу)
+    if (str.includes('/') || str.includes('\\')) return false;
+    // Базовая проверка на base64 символы
+    const base64Regex = /^[A-Za-z0-9+/=]+$/;
+    return str.length > 100 && base64Regex.test(str.replace(/\s/g, ''));
+}
+
+/**
+ * Конвертирует base64 в Blob URL
+ */
+function base64ToBlobUrl(base64Data, mimeType) {
+    try {
+        // Убираем data URI prefix если есть
+        let pureBase64 = base64Data;
+        if (base64Data.startsWith('data:')) {
+            const parts = base64Data.split(',');
+            pureBase64 = parts[1];
+            // Извлекаем MIME-тип из data URI
+            const match = parts[0].match(/^data:([^;]+);base64/);
+            if (match) mimeType = match[1];
+        }
+        
+        // Декодируем base64
+        const byteCharacters = atob(pureBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        
+        // Создаём Blob и URL
+        const blob = new Blob([byteArray], { type: mimeType });
+        return URL.createObjectURL(blob);
+    } catch (e) {
+        console.error('Ошибка конвертации base64:', e);
+        return null;
+    }
+}
+
+/**
+ * Получает URL для медиа (работает с путями и base64)
+ * @param {string} source - путь к файлу или base64 строка
+ * @param {string} type - тип файла для определения MIME (например: 'audio', 'image', 'docx')
+ * @returns {string} URL для использования в src или href
+ */
+function getMediaUrl(source, type) {
+    if (!source) return null;
+    
+    // Если это base64
+    if (isBase64(source)) {
+        const mimeType = getMimeType(source, type);
+        return base64ToBlobUrl(source, mimeType);
+    }
+    
+    // Если это обычный путь — возвращаем как есть
+    return source;
+}
+
+/**
+ * Создаёт ссылку для скачивания из base64
+ */
+function createDownloadLink(linkElement, source, filename) {
+    if (!source || !linkElement) return;
+    
+    if (isBase64(source)) {
+        const mimeType = getMimeType(source, filename);
+        const blobUrl = base64ToBlobUrl(source, mimeType);
+        if (blobUrl) {
+            linkElement.href = blobUrl;
+            linkElement.download = filename;
+        }
+    } else {
+        linkElement.href = source;
+        linkElement.download = filename;
+    }
+}
+
+
+// =====================================================
+// ОЧИСТКА BLOB URL ПРИ УХОДЕ СО СТРАНИЦЫ
+// =====================================================
+
+window.addEventListener('beforeunload', function() {
+    // Освобождаем созданные Blob URL для экономии памяти
+    const allMedia = document.querySelectorAll('img[src^="blob:"], audio[src^="blob:"], a[href^="blob:"]');
+    allMedia.forEach(el => {
+        const url = el.src || el.href;
+        if (url && url.startsWith('blob:')) {
+            URL.revokeObjectURL(url);
+        }
+    });
+});
