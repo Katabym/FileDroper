@@ -1,0 +1,182 @@
+Загружено 21 таблиц
+
+🚫 Исключены (14 колонок, встречаются в >30% таблиц):
+   ctl_action: 21 таблиц
+   ctl_loading: 21 таблиц
+   ctl_validfrom: 21 таблиц
+   deleted: 8 таблиц
+   id: 21 таблиц
+   key: 18 таблиц
+   moduleinfo: 8 таблиц
+   name: 7 таблиц
+   src_ctl_action: 21 таблиц
+   src_ctl_csn: 21 таблиц
+   src_ctl_loading: 21 таблиц
+   src_ctl_validfrom: 21 таблиц
+   vectorstructure: 9 таблиц
+   version: 8 таблиц
+
+============================================================
+Найдено 79 возможных JOIN-связей
+============================================================
+
+📊 По уверенности:
+   high: 5
+   medium: 0
+   low: 74
+
+📊 По типу:
+   same_name: 74
+   fk_pattern: 3
+   shared_key: 2
+
+🟢 HIGH (5):
+   account.depart_id  ↔  accounting_document.depart_id  [shared_key]
+   account.template_id  ↔  accounting_document.template_id  [shared_key]
+   transaction.account_id  ↔  account.id  [fk_pattern]
+   transaction.account_id  ↔  accountdto.id  [fk_pattern]
+   transaction.accounting_document_id  ↔  accounting_document.id  [fk_pattern]
+
+⚪ LOW (74):
+   account.purpose  ↔  accountdto.purpose  [same_name]
+   accountattributevaluedto.account  ↔  transactiondto.account  [same_name]
+   accountattributevaluedto.property  ↔  transactionattributevaluedto.property  [same_name]
+   accountattributevaluedto.value  ↔  transactionattributevaluedto.value  [same_name]
+   accountdto.closebase  ↔  syntheticaccountdto.closebase  [same_name]
+   accountdto.closedate  ↔  syntheticaccountdto.closedate  [same_name]
+   accountdto.comment  ↔  syntheticaccountdto.comment  [same_name]
+   accountdto.depart  ↔  accountingdocumentdto.depart  [same_name]
+   accountdto.finresrepsymbol  ↔  finresrepsymbolarchivedto.finresrepsymbol  [same_name]
+   accountdto.number  ↔  syntheticaccountdto.number  [same_name]
+   accountdto.openbase  ↔  syntheticaccountdto.openbase  [same_name]
+   accountdto.opendate  ↔  syntheticaccountdto.opendate  [same_name]
+   accountdto.parent  ↔  syntheticaccountdto.parent  [same_name]
+   accountdto.revaluationflag  ↔  syntheticaccountdto.revaluationflag  [same_name]
+   accountdto.templateid  ↔  accountingdocumentdto.templateid  [same_name]
+   accountingdocumentdto.accountingpolicy  ↔  syntheticaccountdto.accountingpolicy  [same_name]
+   accountingdocumentdto.ctl_operationdate_part  ↔  correctiondetaildto.ctl_operationdate_part  [same_name]
+   accountingdocumentdto.docdate  ↔  generaldocumentdto.docdate  [same_name]
+   accountingdocumentdto.operationdate  ↔  finresrepsymbolarchivedto.operationdate  [same_name]
+   accountingdocumentdto.sumct  ↔  accountresthistorydto.sumct  [same_name]
+   accountingdocumentdto.sumdt  ↔  accountresthistorydto.sumdt  [same_name]
+   accountingtypedto.code  ↔  transaction.code  [same_name]
+   accountingtypedto.subtype  ↔  syntheticaccountdto.subtype  [same_name]
+   accountresthistorydto.accountid  ↔  finresrepsymbolarchivedto.accountid  [same_name]
+   accountstatusdto.code  ↔  activitysigndto.code  [same_name]
+   accountstatusdto.code  ↔  transactiondto.code  [same_name]
+   accountstatusdto.code  ↔  transactiontypedto.code  [same_name]
+   accountstatusdto.code  ↔  accountingtypedto.code  [same_name]
+   accountstatusdto.code  ↔  transaction.code  [same_name]
+   accountstatusdto.subtype  ↔  activitysigndto.subtype  [same_name]
+   ... и ещё 44
+
+✅ Сохранено в all_join_links.json
+
+============================================================
+Связи между таблицами (уникальных пар: 52)
+============================================================
+
+  account ↔ accounting_document
+      🟢2 🟡0 ⚪0 связей
+      high: depart_id↔depart_id, template_id↔template_id
+  account ↔ transaction
+      🟢1 🟡0 ⚪0 связей
+      high: account_id↔id
+  accountdto ↔ transaction
+      🟢1 🟡0 ⚪0 связей
+      high: account_id↔id
+  accounting_document ↔ transaction
+      🟢1 🟡0 ⚪2 связей
+      high: accounting_document_id↔id
+  account ↔ accountdto
+      🟢0 🟡0 ⚪1 связей
+  accountattributevaluedto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  accountattributevaluedto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪2 связей
+  accountdto ↔ syntheticaccountdto
+      🟢0 🟡0 ⚪8 связей
+  accountdto ↔ accountingdocumentdto
+      🟢0 🟡0 ⚪2 связей
+  accountdto ↔ finresrepsymbolarchivedto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ syntheticaccountdto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ correctiondetaildto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ generaldocumentdto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ finresrepsymbolarchivedto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ accountresthistorydto
+      🟢0 🟡0 ⚪2 связей
+  accountingtypedto ↔ transaction
+      🟢0 🟡0 ⚪1 связей
+  accountingtypedto ↔ syntheticaccountdto
+      🟢0 🟡0 ⚪1 связей
+  accountresthistorydto ↔ finresrepsymbolarchivedto
+      🟢0 🟡0 ⚪1 связей
+  accountstatusdto ↔ activitysigndto
+      🟢0 🟡0 ⚪2 связей
+  accountstatusdto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  accountstatusdto ↔ transactiontypedto
+      🟢0 🟡0 ⚪2 связей
+  accountingtypedto ↔ accountstatusdto
+      🟢0 🟡0 ⚪2 связей
+  accountstatusdto ↔ transaction
+      🟢0 🟡0 ⚪1 связей
+  accountstatusdto ↔ syntheticaccountdto
+      🟢0 🟡0 ⚪1 связей
+  accountattributevaluedto ↔ accountsubkontovaluedto
+      🟢0 🟡0 ⚪3 связей
+  accountsubkontovaluedto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  accountsubkontovaluedto ↔ additionalpropertyvaluedto
+      🟢0 🟡0 ⚪2 связей
+  accountsubkontovaluedto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪2 связей
+  activitysigndto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  activitysigndto ↔ transactiontypedto
+      🟢0 🟡0 ⚪2 связей
+  accountingtypedto ↔ activitysigndto
+      🟢0 🟡0 ⚪2 связей
+  activitysigndto ↔ transaction
+      🟢0 🟡0 ⚪1 связей
+  activitysigndto ↔ syntheticaccountdto
+      🟢0 🟡0 ⚪1 связей
+  accountattributevaluedto ↔ additionalpropertyvaluedto
+      🟢0 🟡0 ⚪2 связей
+  additionalpropertyvaluedto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪2 связей
+  balancesarchivedto ↔ finresrepsymbolarchivedto
+      🟢0 🟡0 ⚪3 связей
+  accountingdocumentdto ↔ balancesarchivedto
+      🟢0 🟡0 ⚪1 связей
+  accountresthistorydto ↔ balancesarchivedto
+      🟢0 🟡0 ⚪1 связей
+  cashsymbolsumdto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ cashsymbolsumdto
+      🟢0 🟡0 ⚪1 связей
+  cashsymbolsumdto ↔ correctiondetaildto
+      🟢0 🟡0 ⚪1 связей
+  accountingdocumentdto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪1 связей
+  correctiondetaildto ↔ transactionattributevaluedto
+      🟢0 🟡0 ⚪1 связей
+  transactiondto ↔ transactiontypedto
+      🟢0 🟡0 ⚪1 связей
+  accountingtypedto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  transaction ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  accountdto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  generaldocumentdto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  finresrepsymbolarchivedto ↔ transactiondto
+      🟢0 🟡0 ⚪1 связей
+  accountingtypedto ↔ transactiontypedto
+      🟢0 🟡0 ⚪2 связей
